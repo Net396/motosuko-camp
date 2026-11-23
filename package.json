@@ -1,0 +1,19 @@
+{
+  "name": "motosuko-camp",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Photorealistic Japanese Solo Camping Simulator at Lake Motosuko (Mt. Fuji) built with Blender + Three.js",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --port 5173 --open",
+    "build": "vite build",
+    "preview": "vite preview",
+    "build:assets": "D:/Blender/blender-5.3.0-windows-x64/blender.exe --background --python blender/build_all_assets.py"
+  },
+  "dependencies": {
+    "three": "^0.172.0"
+  },
+  "devDependencies": {
+    "vite": "^6.1.0"
+  }
+}

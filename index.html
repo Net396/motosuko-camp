@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>本栖湖 · 浩庵露营场 | Motosuko Solo Camp</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+JP:wght@400;600&family=Noto+Sans+SC:wght@300;400;500&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+</head>
+<body>
+  <canvas id="webgl-canvas"></canvas>
+
+  <!-- Loading & Title Screen -->
+  <div id="title-overlay" class="overlay">
+    <div class="title-card">
+      <div class="title-kicker">YAMANASHI · LAKE MOTOSUKO · 902M</div>
+      <h1 class="title-main">本栖湖 <span>浩庵露营场</span></h1>
+      <p class="title-sub">
+        富士山麓实景仿真单人露营 · Blender PBR 资产 × Three.js 实时渲染<br />
+        劈柴 · 引火控温 · 铸铁锅煎A5和牛 · 热咖喱锅 · 手冲咖啡 · 逆富士星夜
+      </p>
+      <div id="loading-area">
+        <div class="progress-track"><div id="loading-bar" class="progress-fill"></div></div>
+        <div id="loading-text" class="loading-label">正在加载 Blender 实景模型资产...</div>
+      </div>
+      <button id="start-btn" class="start-btn hidden">踏入营地 · ENTER CAMP</button>
+      <div class="controls-preview">
+        <span><b>WASD</b> 移动</span>
+        <span><b>C</b> 蹲下照看篝火</span>
+        <span><b>E</b> 交互 / 拾取 / 烹饪</span>
+        <span><b>F</b> 使用火吹棒 / 放下物品</span>
+        <span><b>T</b> 切换时间流速</span>
+        <span><b>P</b> 胶片拍照</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Minimalist Japanese Outdoor HUD -->
+  <div id="hud" class="hud hidden">
+    <!-- Top Left: Location & Time Weather -->
+    <div class="hud-panel hud-top-left">
+      <div class="loc-tag">山梨県 · 本栖湖畔 902m</div>
+      <div class="time-row">
+        <span id="hud-clock" class="clock">16:25</span>
+        <span id="hud-phase" class="phase-badge">黄昏将至</span>
+      </div>
+      <div class="env-row">
+        <span id="hud-ambient">气温 8.4°C</span>
+        <span class="dot">·</span>
+        <span id="hud-wind">微风 2.1 m/s</span>
+        <span class="dot">·</span>
+        <span id="hud-timescale">时间 ×1</span>
+        <span class="dot">·</span>
+        <span id="hud-fps">-- FPS</span>
+      </div>
+    </div>
+
+    <!-- Top Right: Subtle Immersion Vitals -->
+    <div class="hud-panel hud-top-right">
+      <div class="vital-row">
+        <span class="vital-label">体感温度</span>
+        <div class="vital-bar"><div id="bar-warmth" class="vital-fill warmth"></div></div>
+        <span id="val-warmth" class="vital-val">36.5°</span>
+      </div>
+      <div class="vital-row">
+        <span class="vital-label">饱腹满足</span>
+        <div class="vital-bar"><div id="bar-hunger" class="vital-fill hunger"></div></div>
+        <span id="val-hunger" class="vital-val">68%</span>
+      </div>
+      <div class="vital-row">
+        <span class="vital-label">露营惬意</span>
+        <div class="vital-bar"><div id="bar-calm" class="vital-fill calm"></div></div>
+        <span id="val-calm" class="vital-val">82%</span>
+      </div>
+    </div>
+
+    <!-- Center Reticle & Context Prompt -->
+    <div id="reticle" class="reticle"></div>
+    <div id="interact-prompt" class="interact-prompt hidden">
+      <div id="prompt-title" class="prompt-title"></div>
+      <div id="prompt-actions" class="prompt-actions"></div>
+      <div id="prompt-sub" class="prompt-sub"></div>
+    </div>
+
+    <!-- Action Progress Bar (Chopping / Pouring / Igniting) -->
+    <div id="action-meter" class="action-meter hidden">
+      <div id="action-meter-label" class="action-meter-label"></div>
+      <div class="action-meter-track">
+        <div id="action-meter-fill" class="action-meter-fill"></div>
+      </div>
+    </div>
+
+    <!-- Toast Notification -->
+    <div id="toast" class="toast hidden"></div>
+
+    <!-- Bottom Left: Held Item & Campfire Telemetry -->
+    <div class="hud-bottom-left">
+      <div id="fire-telemetry" class="hud-panel fire-panel hidden">
+        <div class="fire-header">
+          <span>焚火台状态</span>
+          <span id="fire-state-badge" class="fire-badge">未点燃</span>
+        </div>
+        <div class="fire-stats">
+          <div><span class="k">炉心温度</span><span id="fire-temp" class="v">9°C</span></div>
+          <div><span class="k">助燃氧气</span><span id="fire-o2" class="v">50%</span></div>
+          <div><span class="k">引火/木柴</span><span id="fire-fuel" class="v">0 / 0</span></div>
+        </div>
+      </div>
+      <div class="hud-panel held-panel">
+        <span class="held-label">手持装备</span>
+        <span id="held-item-name" class="held-name">空手</span>
+        <span id="held-hint" class="held-hint"></span>
+      </div>
+    </div>
+
+    <!-- Bottom Right: Quick Keybinds / Checklist -->
+    <div id="guide-panel" class="hud-panel hud-bottom-right">
+      <div class="guide-title">露营手账 <span class="muted">[H] 收起</span></div>
+      <ul id="quest-list" class="quest-list">
+        <li data-quest="chop">○ 在树墩劈开桧木柴</li>
+        <li data-quest="fire">○ 架柴并打火石引燃篝火</li>
+        <li data-quest="steak">○ 铸铁锅双面煎制 A5 和牛</li>
+        <li data-quest="curry">○ 露营锅煮沸热咖喱汤</li>
+        <li data-quest="coffee">○ 烧水并手冲一杯咖啡</li>
+        <li data-quest="sit">○ 坐克米特椅观富士山品茗</li>
+      </ul>
+      <div class="key-strip">
+        <span>[T] 时间×1/×12/×60</span>
+        <span>[G] 切换黄昏/星夜/晨雾</span>
+        <span>[Q] 流畅/电影画质</span>
+        <span>[P] 拍明信片</span>
+        <span>[Esc] 指针</span>
+      </div>
+    </div>
+
+    <!-- Camera Shutter Flash -->
+    <div id="shutter-flash" class="shutter-flash"></div>
+  </div>
+
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>

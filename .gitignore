@@ -1,0 +1,9 @@
+node_modules/
+dist/
+.vscode/
+.DS_Store
+Thumbs.db
+blender/textures/
+blender/**/__pycache__/
+*.pyc
+*.blend1
