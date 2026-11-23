@@ -12,7 +12,7 @@ from generators.pbr_textures import save_image, height_to_normal, create_pbr_mat
 
 
 def campsite_height(x, y):
-    """Deterministic Koan Camping Ground volcanic shoreline elevation."""
+    """Deterministic Koan Camping Ground 3D micro-topography & shoreline elevation."""
     shore_y = 14.5 + 3.2 * math.sin(x * 0.045) + 1.8 * math.cos(x * 0.095 + 0.6)
     dist_from_shore = shore_y - y
 
@@ -23,15 +23,19 @@ def campsite_height(x, y):
         beach = min(dist_from_shore, 8.0) * 0.11
         flat_camp = max(0.0, min(dist_from_shore - 8.0, 14.0)) * 0.03
         back_hill = max(0.0, dist_from_shore - 22.0) ** 1.38 * 0.19
-        h = beach + flat_camp + back_hill
+        # Wave-washed 3D shoreline gravel berm ridge along the water's edge
+        berm = 0.085 * math.exp(-((dist_from_shore - 2.2) ** 2) / 1.4) * (0.7 + 0.3 * math.sin(x * 0.45))
+        h = beach + flat_camp + back_hill + berm
 
     camp_r = math.hypot(x, y - 2.0)
-    camp_blend = max(0.0, min(1.0, (campR := camp_r) and (campR - 7.5) / 8.0))
+    camp_blend = max(0.0, min(1.0, (camp_r - 7.5) / 8.0))
 
+    # Multi-frequency 3D forest floor hummocks, erosion ruts & hillside rock terraces
     undul = (
-        0.18 * math.sin(x * 0.13 + 0.4) * math.cos(y * 0.11)
-        + 0.09 * math.sin(x * 0.31 - y * 0.27)
-        + 0.04 * math.cos(x * 0.7 + y * 0.6)
+        0.22 * math.sin(x * 0.13 + 0.4) * math.cos(y * 0.11)
+        + 0.11 * math.sin(x * 0.31 - y * 0.27)
+        + 0.055 * math.cos(x * 0.75 + y * 0.65)
+        + 0.028 * math.sin(x * 1.6 - y * 1.4)
     )
     h += undul * camp_blend
 
@@ -46,8 +50,8 @@ def campsite_height(x, y):
 
 def build_campsite_terrain(mats, out_dir):
     clear_scene()
-    # Lean 128x128 mesh (2.4x faster GPU vertex processing while keeping smooth gravel curves!)
-    nx, ny = 128, 128
+    # High-detail 180x180 3D sculpted terrain mesh with non-linear vertex concentration near camp & shore!
+    nx, ny = 180, 180
     size_x, size_y = 180.0, 160.0
     bm = bmesh.new()
 
@@ -150,69 +154,63 @@ def build_mt_fuji_backdrop(out_dir):
     fuji_h += (ridge_hi - 0.5) * 14.0 * np.clip(fuji_profile * 2.2, 0.0, 1.0)
     fuji_h = np.maximum(fuji_h, np.maximum(dome1, dome2))
 
-    # Flanking foreground dark-silhouetted wooded ridges (framing right & far left just like the reference photo!)
-    # Right dark forested hill jutting toward lake (iconic framing!)
-    rr_x = (wx - 620.0) / 420.0
-    rr_y = (wy - 700.0) / 220.0
-    right_ridge = 138.0 * np.exp(-(rr_x ** 2 * 0.85 + rr_y ** 2 * 1.25)) * (0.82 + 0.28 * ridge_hi)
+    # Flanking foreground wooded mountain peninsulas curving naturally into Lake Motosuko (no straight horizontal seam!)
+    rr_x = (wx - 580.0) / 420.0
+    rr_y = (wy - 740.0) / 260.0
+    right_ridge = 148.0 * np.exp(-(rr_x ** 2 * 0.80 + rr_y ** 2 * 1.15)) * (0.82 + 0.30 * ridge_hi)
 
-    # Far-left gentle ridge keeping the golden sunset horizon open behind Fuji's left slope!
-    lr_x = (wx + 880.0) / 420.0
-    lr_y = (wy - 740.0) / 240.0
-    left_ridge = 108.0 * np.exp(-(lr_x ** 2 * 0.8 + lr_y ** 2 * 1.1)) * (0.82 + 0.28 * ridge_hi)
+    lr_x = (wx + 680.0) / 440.0
+    lr_y = (wy - 760.0) / 260.0
+    left_ridge = 128.0 * np.exp(-(lr_x ** 2 * 0.78 + lr_y ** 2 * 1.10)) * (0.82 + 0.30 * ridge_hi)
 
-    # Low wooded far shore apron around lake edge
-    far_shore = 24.0 * np.exp(-((wy - 615.0) / 115.0) ** 2) * (0.72 + 0.50 * ridge_hi)
+    # Organic curved far shoreline (natural bays & headlands instead of a flat straight line at wy=470!)
+    curved_shore_wy = (
+        670.0
+        + 110.0 * np.sin(wx * 0.0032 + 0.5)
+        + 65.0 * np.cos(wx * 0.0075 - 0.8)
+        + 85.0 * noise_detail
+    )
+    H_raw = np.maximum.reduce([fuji_h, left_ridge, right_ridge])
+    edge_y = np.clip((wy - curved_shore_wy) / 140.0, 0.0, 1.0)
+    edge_x = np.clip(1.0 - np.maximum(0.0, (np.abs(wx) - 1060.0) / 240.0), 0.0, 1.0)
+    # Smoothly plunge underwater (-12m) in front of the curved far shoreline so no straight line ever pokes above water!
+    H = H_raw * (edge_y ** 1.25) * edge_x - (1.0 - edge_y) * 14.0
 
-    H = np.maximum.reduce([fuji_h, left_ridge, right_ridge, far_shore])
-    edge_y = np.clip((wy - 470.0) / 150.0, 0.0, 1.0)
-    edge_x = np.clip(1.0 - np.maximum(0.0, (np.abs(wx) - 1040.0) / 260.0), 0.0, 1.0)
-    H = H * edge_y * edge_x - (1.0 - edge_y) * 8.0
-
-    # --- PHOTOGRAPHIC 2048x2048 ALBEDO: Cobalt Alpine Fuji + Crisp Lace-Like Snow Veins + Dark Foreground Ridges ---
-    # Dendritic snow clings tightly inside radial gullies & wind-swept upper ridges, exposing sharp dark basalt ribs!
-    snow_elevation = 212.0 + (1.0 - radial_chutes) * 118.0 - fine_ridges * 36.0 + noise_detail * 24.0
-    is_fuji = np.clip((fuji_h - 115.0) / 55.0, 0.0, 1.0)
-    # Razor-crisp snow threshold (sharp 7m transition = photographic alpine snow streaks!)
+    # --- PHOTOGRAPHIC 2048x2048 ALBEDO: Cobalt Alpine Fuji + Crisp Lace-Like Snow Veins + Lush Autumn Foothills ---
+    snow_elevation = 205.0 + (1.0 - radial_chutes) * 115.0 - fine_ridges * 36.0 + noise_detail * 24.0
+    is_fuji = np.clip((fuji_h - 105.0) / 55.0, 0.0, 1.0)
     snow_mask = np.clip((H - snow_elevation) / 7.5, 0.0, 1.0) * is_fuji
-    # Extra crisp summit ice cap right around the crater rim
-    summit_cap = np.clip((H - 332.0) / 14.0, 0.0, 1.0) * (0.45 + 0.55 * radial_chutes)
+    summit_cap = np.clip((H - 328.0) / 14.0, 0.0, 1.0) * (0.45 + 0.55 * radial_chutes)
     snow_mask = np.clip(np.maximum(snow_mask, summit_cap), 0.0, 1.0)
 
-    # Authentic deep Japanese Cobalt-Indigo Alpine Fuji slopes (aerial Rayleigh scattering tint like reference photo!)
+    # Authentic deep Japanese Cobalt-Indigo Alpine Fuji slopes
     alt_t = np.clip(H / 380.0, 0.0, 1.0)
     fuji_rock = np.zeros((S, S, 3), dtype=np.float32)
-    rib_contrast = 0.65 + 0.55 * fine_ridges
-    # Rich sapphire-cobalt slate on mid-lower slopes -> darker volcanic basalt ridges near summit
-    fuji_rock[..., 0] = (0.045 + 0.055 * (1.0 - alt_t) + 0.03 * ridge_hi) * rib_contrast
-    fuji_rock[..., 1] = (0.115 + 0.095 * (1.0 - alt_t) + 0.04 * ridge_hi) * rib_contrast
-    fuji_rock[..., 2] = (0.245 + 0.145 * (1.0 - alt_t) + 0.06 * ridge_hi) * rib_contrast
+    rib_contrast = 0.68 + 0.52 * fine_ridges
+    fuji_rock[..., 0] = (0.055 + 0.065 * (1.0 - alt_t) + 0.03 * ridge_hi) * rib_contrast
+    fuji_rock[..., 1] = (0.125 + 0.105 * (1.0 - alt_t) + 0.04 * ridge_hi) * rib_contrast
+    fuji_rock[..., 2] = (0.255 + 0.145 * (1.0 - alt_t) + 0.06 * ridge_hi) * rib_contrast
 
-    # Dark silhouetted forested foreground flanking hills & far shoreline (deep pine black-green for dramatic contrast!)
+    # Lush Sunlit Autumn & Pine Forest Foothills along the flanking ridges and curved far shore (NOT pitch black!)
     canopy_hi = up2x(fbm(S_n, 48, 4, 0.60, seed=2031))
-    is_fg_ridge = np.clip(
-        np.maximum((right_ridge - fuji_h + 15.0) / 30.0, (left_ridge - fuji_h + 15.0) / 30.0),
-        0.0, 1.0
-    )
-    is_far_shore = np.clip((685.0 - wy) / 90.0, 0.0, 1.0)
-    dark_forest_mask = np.clip(np.maximum(is_fg_ridge, is_far_shore), 0.0, 1.0)
+    autumn_groves = up2x(fbm(S_n, 14, 4, 0.55, seed=2026))
+    autumn_patch = np.clip((autumn_groves - 0.45) * 3.0, 0.0, 1.0)
 
-    dark_forest = np.zeros((S, S, 3), dtype=np.float32)
-    dark_forest[..., 0] = 0.018 + canopy_hi * 0.032
-    dark_forest[..., 1] = 0.036 + canopy_hi * 0.052
-    dark_forest[..., 2] = 0.022 + canopy_hi * 0.028
+    foothill_forest = np.zeros((S, S, 3), dtype=np.float32)
+    # Deep alpine forest green + warm autumn russet/amber maple & beech slopes
+    foothill_forest[..., 0] = (0.045 + canopy_hi * 0.055) * (1 - autumn_patch * 0.72) + (0.38 + canopy_hi * 0.22) * (autumn_patch * 0.72)
+    foothill_forest[..., 1] = (0.105 + canopy_hi * 0.085) * (1 - autumn_patch * 0.72) + (0.17 + canopy_hi * 0.14) * (autumn_patch * 0.72)
+    foothill_forest[..., 2] = (0.075 + canopy_hi * 0.055) * (1 - autumn_patch * 0.72) + (0.06 + canopy_hi * 0.04) * (autumn_patch * 0.72)
 
-    # Misty blue-teal Aokigahara forest sea at Fuji's mid-base (just like the reference photo!)
-    base_plain_mask = np.clip(1.0 - (H - 55.0) / 55.0, 0.0, 1.0) * (1.0 - dark_forest_mask)
-    aoki_col = np.zeros((S, S, 3), dtype=np.float32)
-    aoki_col[..., 0] = 0.030 + canopy_hi * 0.045
-    aoki_col[..., 1] = 0.085 + canopy_hi * 0.080
-    aoki_col[..., 2] = 0.145 + canopy_hi * 0.105
+    # Golden sandy/pebble beach strip right along the curved far shoreline (matching reference photo 2!)
+    far_beach_mask = np.clip(1.0 - np.abs(H - 2.5) / 5.5, 0.0, 1.0) * np.clip(1.0 - is_fuji, 0.0, 1.0)
+    far_beach_col = np.array([0.46, 0.36, 0.22], dtype=np.float32)
 
-    albedo = fuji_rock * (1.0 - base_plain_mask[..., None]) + aoki_col * base_plain_mask[..., None]
-    albedo = albedo * (1.0 - dark_forest_mask[..., None]) + dark_forest * dark_forest_mask[..., None]
+    foothill_mask = np.clip(1.0 - (H - 115.0) / 55.0, 0.0, 1.0) * (1.0 - 0.45 * is_fuji)
+    albedo = fuji_rock * (1.0 - foothill_mask[..., None]) + foothill_forest * foothill_mask[..., None]
+    albedo = albedo * (1.0 - far_beach_mask[..., None] * 0.75) + far_beach_col * (far_beach_mask[..., None] * 0.75)
 
-    # Pure sparkling sunlit alpine snow with subtle cool-blue crevice nuance
+    # Pure sparkling sunlit alpine snow
     snow_col = np.zeros((S, S, 3), dtype=np.float32)
     snow_col[..., 0] = 0.94 + fine_ridges * 0.06
     snow_col[..., 1] = 0.95 + fine_ridges * 0.05

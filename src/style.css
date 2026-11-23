@@ -211,6 +211,46 @@ html, body {
   gap: 6px;
 }
 
+.celestial-bar {
+  margin-top: 8px;
+  padding-top: 7px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.celestial-meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 10.5px;
+  color: #ffe3b8;
+  font-family: 'JetBrains Mono', monospace;
+  margin-bottom: 6px;
+  gap: 10px;
+}
+
+.celestial-keys {
+  color: var(--text-muted);
+  font-size: 10px;
+}
+
+.celestial-track {
+  position: relative;
+  height: 5px;
+  border-radius: 99px;
+  background: linear-gradient(90deg, #0d162c 0%, #e88e5a 25%, #5ea8e6 50%, #f08a62 74%, #0d162c 100%);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+}
+
+.celestial-orb {
+  position: absolute;
+  top: 50%;
+  left: 65%;
+  transform: translate(-50%, -50%);
+  font-size: 12px;
+  filter: drop-shadow(0 0 4px rgba(255, 200, 110, 0.8));
+  transition: left 0.08s linear;
+}
+
 .hud-top-right {
   position: absolute;
   top: 18px;

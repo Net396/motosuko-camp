@@ -413,39 +413,79 @@ def generate_all_materials():
     S = 512
     S_HI = 1024
 
-    # 1. HIGH-RES 1024x1024 Volcanic Black Sand & Basalt Pebble Beach (Koan Motosuko Shoreline!)
-    peb_large, cid_large = voronoi_pebbles(S_HI, cells=22, seed=101)
-    peb_med, cid_med = voronoi_pebbles(S_HI, cells=48, seed=102)
-    peb_fine = tileable_noise(S_HI, 128, seed=103)
-    sand_macro = fbm(S_HI, 6, 4, 0.55, seed=104)
+    # 1. PURE 1024x1024 Micro-Grain Volcanic Loam & Damp Sand Base Earth (ZERO fake 2D painted leaves/stones!)
+    # All pebbles, stones, moss cushions, curled Momiji leaves, twigs, ferns & grass are real 3D geometry!
+    soil_macro = fbm(S_HI, 8, 5, 0.55, seed=101)
+    soil_mid   = fbm(S_HI, 32, 4, 0.58, seed=102)
+    soil_micro = tileable_noise(S_HI, 128, seed=103) * 0.6 + tileable_noise(S_HI, 256, seed=104) * 0.4
+    earth_h = np.clip(soil_macro * 0.35 + soil_mid * 0.40 + soil_micro * 0.25, 0.0, 1.0)
 
-    # Blend multi-scale real volcanic basalt pebbles over dark Fuji volcanic grit
-    pebble_h = np.maximum(peb_large * 0.75, peb_med * 0.58) * 0.72 + peb_fine * 0.18 + sand_macro * 0.10
     col = np.zeros((S_HI, S_HI, 3), dtype=np.float32)
-    # Individual pebble color diversity: charcoal basalt, dark slate grey, warm volcanic brown-grey
-    stone_tone = 0.11 + cid_large * 0.14 + cid_med * 0.08 + pebble_h * 0.12
-    col[..., 0] = stone_tone * (0.98 + (cid_large - 0.5) * 0.18)
-    col[..., 1] = stone_tone * (0.94 + (cid_med - 0.5) * 0.12)
-    col[..., 2] = stone_tone * (0.90 + (0.5 - cid_large) * 0.14)
-
-    # Darken crevices between pebbles for realistic baked micro-AO!
-    crevice_ao = np.clip(0.45 + pebble_h * 0.85, 0.35, 1.0)
-    col *= crevice_ao[..., None]
-
-    # Subtle scattered fallen autumn needles & dried leaf flecks
-    needle_mask = np.clip((fbm(S_HI, 16, 4, 0.55, seed=105) - 0.63) * 4.5, 0, 1) * (1.0 - peb_large * 0.6)
-    col[..., 0] = col[..., 0] * (1 - needle_mask * 0.55) + 0.34 * (needle_mask * 0.55)
-    col[..., 1] = col[..., 1] * (1 - needle_mask * 0.55) + 0.17 * (needle_mask * 0.55)
-    col[..., 2] = col[..., 2] * (1 - needle_mask * 0.55) + 0.07 * (needle_mask * 0.55)
-
-    rough = np.clip(0.86 - peb_large * 0.28 + (1.0 - crevice_ao) * 0.15, 0.48, 0.96)
+    # Rich dark Japanese volcanic forest loam & fine basalt grit
+    col[..., 0] = 0.12 + earth_h * 0.13 + (soil_macro - 0.5) * 0.04
+    col[..., 1] = 0.10 + earth_h * 0.11 + (soil_macro - 0.5) * 0.03
+    col[..., 2] = 0.08 + earth_h * 0.09
+    rough = np.clip(0.92 - soil_micro * 0.14, 0.72, 0.98)
     mats["volcanic_ground"] = create_pbr_material(
         "Mat_VolcanicGround",
         albedo_img=save_image("volcanic_ground_albedo", col, True),
-        normal_img=save_image("volcanic_ground_normal", height_to_normal(pebble_h, 7.5), False),
+        normal_img=save_image("volcanic_ground_normal", height_to_normal(earth_h, 5.5), False),
         rough_img=save_image("volcanic_ground_rough", rough, False),
-        normal_strength=1.35,
-        uv_scale=(34.0, 34.0),
+        normal_strength=1.15,
+        uv_scale=(28.0, 28.0),
+    )
+
+    # 1b. 3D Velvet Forest Moss (Sugi-goke) PBR Material for 3D moss mounds!
+    moss_n = fbm(S, 24, 4, 0.6, seed=111)
+    moss_micro = tileable_noise(S, 128, seed=112)
+    moss_h = moss_n * 0.55 + moss_micro * 0.45
+    c_moss = np.zeros((S, S, 3), dtype=np.float32)
+    c_moss[..., 0] = 0.11 + moss_h * 0.16
+    c_moss[..., 1] = 0.22 + moss_h * 0.24
+    c_moss[..., 2] = 0.06 + moss_h * 0.08
+    mats["forest_moss"] = create_pbr_material(
+        "Mat_ForestMoss",
+        albedo_img=save_image("forest_moss_albedo", c_moss, True),
+        normal_img=save_image("forest_moss_normal", height_to_normal(moss_h, 6.0), False),
+        roughness=0.92,
+        normal_strength=1.2,
+    )
+
+    # 1c. 3D Sculpted Curled Maple Leaf Material (neutral warm white-cream base so Three.js instanceColor tints each 3D leaf!)
+    leaf_vein = fbm(256, 16, 4, 0.55, seed=113)
+    c_leaf3d = np.stack([0.88 + leaf_vein * 0.12] * 3, axis=-1).astype(np.float32)
+    mats["leaf_3d_mat"] = create_pbr_material(
+        "Mat_Leaf3D",
+        albedo_img=save_image("leaf_3d_albedo", c_leaf3d, True),
+        normal_img=save_image("leaf_3d_normal", height_to_normal(leaf_vein, 3.0), False),
+        roughness=0.62,
+        normal_strength=0.65,
+    )
+
+    # 1d. 3D Blade-by-Blade Grass & Sedge Material (vertical root-to-tip gradient!)
+    gy, gx = np.mgrid[0:256, 0:256].astype(np.float32) / 256.0
+    g_rib = np.sin(gx * math.pi * 32.0) * 0.5 + 0.5
+    c_grass3d = np.zeros((256, 256, 3), dtype=np.float32)
+    # Dark earthy root (gy=0) -> olive green mid -> golden-amber autumn tip (gy=1)
+    c_grass3d[..., 0] = 0.14 + (gy ** 1.1) * 0.46 + g_rib * 0.04
+    c_grass3d[..., 1] = 0.18 + (gy ** 0.85) * 0.36 + g_rib * 0.04
+    c_grass3d[..., 2] = 0.06 + (gy ** 1.4) * 0.12
+    mats["grass_3d_mat"] = create_pbr_material(
+        "Mat_Grass3D",
+        albedo_img=save_image("grass_3d_albedo", c_grass3d, True),
+        roughness=0.72,
+    )
+
+    # 1e. 3D Woodland Fern (Shida) Material
+    c_fern = np.zeros((256, 256, 3), dtype=np.float32)
+    c_fern[..., 0] = 0.16 + leaf_vein * 0.18
+    c_fern[..., 1] = 0.28 + leaf_vein * 0.22
+    c_fern[..., 2] = 0.07 + leaf_vein * 0.07
+    mats["fern_3d_mat"] = create_pbr_material(
+        "Mat_Fern3D",
+        albedo_img=save_image("fern_3d_albedo", c_fern, True),
+        normal_img=save_image("fern_3d_normal", height_to_normal(leaf_vein, 3.5), False),
+        roughness=0.68,
     )
 
     # 2. HIGH-RES 1024x1024 Heavy Woven Cotton-Poly TC Canvas Tent Fabric (Nordisk / Tent-Mark Circus TC)

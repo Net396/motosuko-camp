@@ -190,6 +190,9 @@ export class CampGame {
     this.tentLight.position.set(-4.3, tentY + 1.35, -6.5);
     this.scene.add(this.tentLight);
 
+    // 1b. Cozy Japanese Glamping Festoon String Lights (露营氛围串灯) draped from Left Maple -> Tent Peak -> Lantern Stand!
+    this._buildFestoonStringLights(tentY, standBaseY);
+
     // 2. Snow Peak Takibi Fire Pit (centerpiece facing Mt. Fuji!)
     this.pitPos = this._groundAt(0.0, -3.65, 0.0);
     this.firepit = this.assets.clone('firepit_snowpeak');
@@ -851,6 +854,45 @@ export class CampGame {
     this._syncWoodPiles();
   }
 
+  _buildFestoonStringLights(tentY, standBaseY) {
+    this.festoonGroup = new THREE.Group();
+    const pTree  = new THREE.Vector3(-9.6, tentY + 2.85, -7.1);
+    const pTent  = new THREE.Vector3(-4.6, tentY + 2.54, -6.8);
+    const pStand = new THREE.Vector3(1.65, standBaseY + 1.66, -3.55);
+
+    const buildSpan = (pA, pB, sag, numBulbs) => {
+      const mid = pA.clone().lerp(pB, 0.5);
+      mid.y -= sag;
+      const curve = new THREE.QuadraticBezierCurve3(pA, mid, pB);
+      const cordGeom = new THREE.TubeGeometry(curve, 20, 0.004, 5, false);
+      const cordMat = new THREE.MeshBasicMaterial({ color: 0x1a1816 });
+      this.festoonGroup.add(new THREE.Mesh(cordGeom, cordMat));
+
+      for (let i = 1; i <= numBulbs; i++) {
+        const t = i / (numBulbs + 1);
+        const pt = curve.getPoint(t);
+        // Little socket + warm glowing Edison bulb
+        const bulb = new THREE.Mesh(
+          new THREE.SphereGeometry(0.028, 10, 10),
+          this.festoonBulbMat
+        );
+        bulb.position.set(pt.x, pt.y - 0.035, pt.z);
+        this.festoonGroup.add(bulb);
+      }
+    };
+
+    this.festoonBulbMat = new THREE.MeshBasicMaterial({ color: 0xffd488 });
+    buildSpan(pTree, pTent, 0.42, 4);
+    buildSpan(pTent, pStand, 0.58, 6);
+
+    // Warm overhead festoon fill light that illuminates the campsite softly as dusk & night fall!
+    this.festoonLight = new THREE.PointLight(0xffb258, 0.0, 15.0, 1.45);
+    this.festoonLight.position.set(-1.6, tentY + 2.15, -4.8);
+    this.festoonGroup.add(this.festoonLight);
+
+    this.scene.add(this.festoonGroup);
+  }
+
   _buildSteamAndPourFX() {
     // 1. Rising savory steam particle pool (shared by skillet, camp pot, kettle, and hot coffee mug!)
     const canvas = document.createElement('canvas');
@@ -1336,20 +1378,25 @@ export class CampGame {
     // 1. Update thermodynamic campfire
     this.fire.update(dt, elapsed, sky);
 
-    // 2. Lantern & tent warm night glow
-    const nightBoost = 1.0 - THREE.MathUtils.smoothstep(sky.sunElevation, -0.10, 0.15);
+    // 2. Lantern, Festoon String Lights & Tent warm night glow (automatically driven by real solar elevation!)
+    const nightBoost = 1.0 - THREE.MathUtils.smoothstep(sky.sunElevation, -0.10, 0.14);
     const lanternFlicker = 0.94 + 0.06 * Math.sin(elapsed * 16.0);
-    this.lanternLight.intensity = this.state.lanternOn ? (1.6 + nightBoost * 3.2) * lanternFlicker : 0;
+    this.lanternLight.intensity = this.state.lanternOn ? (1.6 + nightBoost * 3.6) * lanternFlicker : 0;
     this.lanternFlameMesh.visible = this.state.lanternOn;
-    this.tentLight.intensity = 0.65 + nightBoost * 2.6;
+    this.tentLight.intensity = 0.65 + nightBoost * 3.1;
     if (this.hangingLanternPivot) {
       this.hangingLanternPivot.rotation.z = Math.sin(elapsed * 1.45) * 0.028 * (0.5 + sky.windSpeed * 0.25);
       this.hangingLanternPivot.rotation.x = Math.cos(elapsed * 1.15) * 0.018 * (0.5 + sky.windSpeed * 0.25);
-      this.hangingLanternLight.intensity = (1.1 + nightBoost * 2.8) * lanternFlicker;
+      this.hangingLanternLight.intensity = (1.1 + nightBoost * 3.2) * lanternFlicker;
+    }
+    if (this.festoonLight && this.festoonBulbMat) {
+      const festoonOn = 1.0 - THREE.MathUtils.smoothstep(sky.sunElevation, -0.04, 0.12);
+      this.festoonLight.intensity = festoonOn * 2.45;
+      this.festoonBulbMat.color.setHex(0x665848).lerp(new THREE.Color(0xffdf9a), festoonOn);
     }
     if (this.tentCanvasMats) {
       for (const m of this.tentCanvasMats) {
-        m.emissiveIntensity = 0.04 + nightBoost * 0.24 * lanternFlicker;
+        m.emissiveIntensity = 0.04 + nightBoost * 0.28 * lanternFlicker;
       }
     }
 

@@ -30,6 +30,10 @@ from generators.cooking_gear import (
 from generators.nature_assets import (
     build_japanese_cedar, build_japanese_maples, build_basalt_rock, build_pampas_grass, build_autumn_shrubs
 )
+from generators.ground_details import (
+    build_3d_gravel_cluster, build_3d_moss_mound, build_3d_curled_maple_leaf,
+    build_3d_grass_tuft, build_3d_fern_clump, build_3d_forest_debris, build_3d_driftwood
+)
 
 
 def main():
@@ -69,12 +73,21 @@ def main():
     build_titanium_mug(mats, OUT_DIR)
     build_cutting_board_and_jug(mats, OUT_DIR)
 
-    print("[6/6] Building Nature Assets (Cedar, Autumn Maples, Shrubs, Basalt Rocks, Susuki Grass)...")
+    print("[6/7] Building Nature Assets (Cedar, Autumn Maples, Shrubs, Basalt Rocks, Susuki Grass)...")
     build_japanese_cedar(mats, OUT_DIR)
     build_japanese_maples(mats, OUT_DIR)
     build_basalt_rock(mats, OUT_DIR)
     build_pampas_grass(mats, OUT_DIR)
     build_autumn_shrubs(mats, OUT_DIR)
+
+    print("[7/7] Building True 3D Ground Cover Models (Gravel Clusters, Moss Mounds, 3D Curled Leaves, Grass, Ferns, Twigs, Driftwood)...")
+    build_3d_gravel_cluster(mats, OUT_DIR)
+    build_3d_moss_mound(mats, OUT_DIR)
+    build_3d_curled_maple_leaf(mats, OUT_DIR)
+    build_3d_grass_tuft(mats, OUT_DIR)
+    build_3d_fern_clump(mats, OUT_DIR)
+    build_3d_forest_debris(mats, OUT_DIR)
+    build_3d_driftwood(mats, OUT_DIR)
 
     dt = time.time() - t0
     print("=" * 64)

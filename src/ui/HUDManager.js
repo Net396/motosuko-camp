@@ -17,6 +17,8 @@ export class HUDManager {
       wind: document.getElementById('hud-wind'),
       timeScale: document.getElementById('hud-timescale'),
       fps: document.getElementById('hud-fps'),
+      solarAngle: document.getElementById('hud-solar-angle'),
+      celestialOrb: document.getElementById('celestial-orb'),
 
       barWarmth: document.getElementById('bar-warmth'),
       valWarmth: document.getElementById('val-warmth'),
@@ -130,7 +132,19 @@ export class HUDManager {
     this.el.phase.textContent = sky.getPhaseName();
     this.el.ambient.textContent = `气温 ${sky.ambientTempC.toFixed(1)}°C`;
     this.el.wind.textContent = `微风 ${sky.windSpeed.toFixed(1)} m/s`;
-    this.el.timeScale.textContent = `时间 ×${sky.timeScale}`;
+    this.el.timeScale.textContent = sky.timeScale === 0 ? '时间 暂停' : `时间 ×${sky.timeScale}`;
+
+    if (this.el.solarAngle && this.el.celestialOrb) {
+      const deg = sky.getSolarAngleDeg();
+      const isNight = deg < -2.0;
+      const sign = deg >= 0 ? '+' : '';
+      this.el.solarAngle.textContent = isNight
+        ? `🌙 太阳 ${sign}${deg.toFixed(1)}° · 星夜皓月`
+        : `☀️ 太阳仰角 ${sign}${deg.toFixed(1)}°`;
+      this.el.celestialOrb.textContent = isNight ? '🌙' : '☀️';
+      const pct = ((sky.timeOfDay / 24.0) * 100).toFixed(1);
+      this.el.celestialOrb.style.left = `${pct}%`;
+    }
   }
 
   updateVitals(vitals) {

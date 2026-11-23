@@ -141,12 +141,32 @@ async function bootstrap() {
     if (!started) return;
     if (e.code === 'KeyT') {
       const scale = sky.cycleTimeScale();
-      hud.showToast(`时间流速已切换为 ×${scale}`);
+      hud.showToast(scale === 0 ? '⏸ 时间流逝已暂停 (可用 [ / ] 键手动拨动太阳)' : `⏱ 真实太阳运转流速已切换为 ×${scale}`);
     } else if (e.code === 'KeyG') {
       const mood = sky.cyclePresetTime();
       renderer.shadowMap.needsUpdate = true;
       lake.forceReflectionRefresh();
-      hud.showToast(`⛅ 已切换天象时刻：${mood}`);
+      hud.showToast(`☀️ 太阳正沿真实天体轨道运转至：${mood}`);
+    } else if (e.code === 'Digit1') {
+      sky.setTimeOfDay(6.18, true);
+      hud.showToast('🌅 太阳正从东侧山脊升起：破晓朝烧 (06:11)');
+    } else if (e.code === 'Digit2') {
+      sky.setTimeOfDay(15.35, true);
+      hud.showToast('☀️ 太阳正运行至午后斜阳：秋日暖阳 (15:21)');
+    } else if (e.code === 'Digit3') {
+      sky.setTimeOfDay(17.65, true);
+      hud.showToast('🌇 太阳正西沉至富士山侧：黄金夕烧 (17:39)');
+    } else if (e.code === 'Digit4') {
+      sky.setTimeOfDay(21.50, true);
+      hud.showToast('🌌 太阳沉入地平线以下：本栖湖银河星夜与露营串灯 (21:30)');
+    } else if (e.code === 'BracketLeft') {
+      sky.nudgeTime(-0.35);
+      renderer.shadowMap.needsUpdate = true;
+      lake.forceReflectionRefresh();
+    } else if (e.code === 'BracketRight') {
+      sky.nudgeTime(0.35);
+      renderer.shadowMap.needsUpdate = true;
+      lake.forceReflectionRefresh();
     } else if (e.code === 'KeyQ') {
       qualityMode = 1 - qualityMode;
       applyQuality();
@@ -185,11 +205,12 @@ async function bootstrap() {
       fpsTimer = 0;
     }
 
-    // Refresh static sun shadow map at ~4Hz instead of 60Hz (massive GPU win with zero visible difference!)
+    // Refresh static sun shadow map at ~4Hz (or every frame while sun is actively gliding across sky!)
     shadowTimer += realDt;
-    if (shadowTimer >= 0.25) {
+    if (sky.targetTimeOfDay !== null || shadowTimer >= 0.25) {
       shadowTimer = 0;
       renderer.shadowMap.needsUpdate = true;
+      if (sky.targetTimeOfDay !== null) lake.forceReflectionRefresh();
     }
 
     sky.update(dt, elapsed);

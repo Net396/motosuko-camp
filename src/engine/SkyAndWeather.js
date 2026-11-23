@@ -1,23 +1,29 @@
 import * as THREE from 'three';
 
 /**
- * Photographic Japanese Magic-Hour Atmospheric Sky Dome, Sculpted Backlit Dusk Clouds,
- * Milky Way Starfield, Dynamic Sun/Moon Shadows, Far-Shore Lakeside Village Lights,
- * Misty Blue Aokigahara Base Fog, and Autumn Falling Maple Leaves.
+ * Physically-Driven 24-Hour Celestial & Atmospheric Engine for Lake Motosuko (35.47° N, Mt. Fuji).
+ * All lighting, sky scattering, cloud illumination, shadow angles, starfield rotation,
+ * moon phases/reflections, volumetric God-Rays, and nighttime fireflies are 100% driven
+ * by the continuous 3D orbital mechanics of the Sun and Moon.
  */
 export class SkyAndWeather {
   constructor(scene, renderer) {
     this.scene = scene;
     this.renderer = renderer;
 
-    // Start at 15:24 (Crisp Sunlit Golden Autumn Afternoon — warm cozy light & shadows, vibrant azure sky & sapphire lake!)
-    // Press [G] anytime to switch to 17:44 Pink-Gold Sunset Alpenglow, 21:20 Milky Way Starry Night, or 06:22 Dawn Mist!
-    this.timeOfDay = 15.40;
-    this.timeScale = 1;
+    // Start at 16:35 (late golden afternoon approaching sunset so the user immediately sees the sun sinking!)
+    this.timeOfDay = 16.58;
+    this.targetTimeOfDay = null; // Smooth orbital fast-forward target when switching moods!
+    this.timeScale = 4;          // Default x4 natural flow (~1 game hour per 45s so sun movement is visibly alive!)
     this.windSpeed = 1.2;
     this.windDir = new THREE.Vector2(0.8, 0.4).normalize();
-    this.sunDir = new THREE.Vector3(-0.62, 0.09, -0.78).normalize();
-    this.sunElevation = 0.09;
+
+    this.sunDir = new THREE.Vector3(-0.6, 0.18, -0.78).normalize();
+    this.moonDir = new THREE.Vector3(0.5, 0.35, -0.78).normalize();
+    this.sunElevation = 0.18;
+    this.moonElevation = -0.18;
+    this.nightFactor = 0.0; // 0 = day, 1 = full night
+    this.sunsetFactor = 0.0;
     this.ambientTempC = 8.4;
 
     this._pmrem = new THREE.PMREMGenerator(renderer);
@@ -29,11 +35,12 @@ export class SkyAndWeather {
     this._buildSkyDome();
     this._buildLights();
     this._buildLakeMist();
+    this._buildVolumetricGodRays();
     this._buildFarVillageLights();
+    this._buildNightFireflies();
     this._buildFallingLeaves();
 
-    // Very light alpine crystal-clear aerial haze so Mt. Fuji stays razor sharp!
-    this.scene.fog = new THREE.FogExp2(0x8aa8c8, 0.00024);
+    this.scene.fog = new THREE.FogExp2(0x8aa8c8, 0.00022);
     this.update(0.016, 0);
   }
 
@@ -42,15 +49,16 @@ export class SkyAndWeather {
       side: THREE.BackSide,
       depthWrite: false,
       uniforms: {
-        uSunDir: { value: new THREE.Vector3(-0.6, 0.08, -0.8) },
-        uMoonDir: { value: new THREE.Vector3(0.4, -0.2, 0.8) },
-        uZenithColor: { value: new THREE.Color(0x4b68b4) },
-        uMidSkyColor: { value: new THREE.Color(0xf4a6b8) },
-        uHorizonColor: { value: new THREE.Color(0xffbe72) },
-        uGroundColor: { value: new THREE.Color(0x131d2b) },
+        uSunDir: { value: new THREE.Vector3(-0.6, 0.1, -0.8) },
+        uMoonDir: { value: new THREE.Vector3(0.4, 0.3, -0.8) },
+        uZenithColor: { value: new THREE.Color(0x1e66bd) },
+        uMidSkyColor: { value: new THREE.Color(0x5ea6e4) },
+        uHorizonColor: { value: new THREE.Color(0xd2e9fa) },
+        uGroundColor: { value: new THREE.Color(0x0b121e) },
         uSunColor: { value: new THREE.Color(0xffd292) },
-        uSunsetAmount: { value: 0.9 },
+        uSunsetAmount: { value: 0.5 },
         uStarVisibility: { value: 0.0 },
+        uCelestialAngle: { value: 0.0 },
         uTime: { value: 0.0 },
       },
       vertexShader: `
@@ -71,6 +79,7 @@ export class SkyAndWeather {
         uniform vec3 uSunColor;
         uniform float uSunsetAmount;
         uniform float uStarVisibility;
+        uniform float uCelestialAngle;
         uniform float uTime;
         varying vec3 vWorldDir;
 
@@ -111,12 +120,20 @@ export class SkyAndWeather {
           return v;
         }
 
+        // Rotate starfield around the North Celestial Pole (35.47 deg elevation at Lake Motosuko!)
+        vec3 rotateCelestial(vec3 d, float ang) {
+          float c = cos(ang);
+          float s = sin(ang);
+          return vec3(c * d.x + s * d.z, d.y, -s * d.x + c * d.z);
+        }
+
         void main() {
           vec3 dir = normalize(vWorldDir);
           float h = dir.y;
           vec3 sDir = normalize(uSunDir);
+          vec3 mDir = normalize(uMoonDir);
 
-          // 3-band photographic sky gradient: Apricot-Gold Horizon -> Sakura Rose-Pink Mid-Sky -> Violet-Blue Zenith!
+          // 1. 3-band physically-driven sky gradient
           float tMid = smoothstep(0.0, 0.24, max(h, 0.0));
           float tTop = smoothstep(0.16, 0.68, max(h, 0.0));
           vec3 sky = mix(uHorizonColor, uMidSkyColor, tMid);
@@ -125,53 +142,76 @@ export class SkyAndWeather {
             sky = mix(uHorizonColor, uGroundColor, clamp(-h * 5.0, 0.0, 1.0));
           }
 
-          // Soft glowing apricot-gold horizon band + diffused magic-hour solar glow (no harsh white blowout!)
+          // 2. Solar Mie scattering & directional horizon glow following the real 3D sun position!
           float sunCos = max(dot(dir, sDir), 0.0);
           float azGlow = max(dot(normalize(vec2(dir.x, dir.z)), normalize(vec2(sDir.x, sDir.z))), 0.0);
-          float sunAbove = smoothstep(-0.10, 0.03, sDir.y);
-          float horizonBand = exp(-max(h, 0.0) * 5.2);
-          sky += vec3(1.0, 0.66, 0.32) * (0.28 + 0.52 * pow(azGlow, 1.8)) * horizonBand * 0.58 * uSunsetAmount * sunAbove;
-          sky += uSunColor * (pow(sunCos, 8.0) * 0.18 + pow(sunCos, 64.0) * 0.30) * sunAbove;
-          sky += uSunColor * smoothstep(0.99945, 0.9998, sunCos) * 1.1 * sunAbove;
+          float sunAbove = smoothstep(-0.12, 0.04, sDir.y);
+          float horizonBand = exp(-max(h, 0.0) * 5.0);
+          sky += vec3(1.0, 0.62, 0.28) * (0.25 + 0.65 * pow(azGlow, 2.0)) * horizonBand * 0.62 * uSunsetAmount * sunAbove;
+          sky += uSunColor * (pow(sunCos, 8.0) * 0.20 + pow(sunCos, 72.0) * 0.38) * sunAbove;
+          // Crisp solar disc moving across the sky
+          sky += uSunColor * smoothstep(0.99935, 0.99978, sunCos) * 1.45 * smoothstep(-0.03, 0.02, sDir.y);
 
-          // Rich sculpted backlit Japanese dusk/dawn cirrus & altocumulus clouds!
+          // 3. Volumetric clouds lit dynamically by both Sun (day/sunset) and Moon (night)!
           if (h > 0.015) {
             vec2 pUV = dir.xz / (h + 0.28);
             vec2 flow = vec2(uTime * 0.0025, -uTime * 0.0012);
-            // Sweeping diagonal cloud streaks across upper-right & mid-sky (just like reference photo!)
             vec2 stretchUV = vec2(pUV.x * 1.15 + pUV.y * 0.45, pUV.y * 2.4 - pUV.x * 0.35) + flow;
             float cBase = fbmCloud(stretchUV * 1.35);
             float cDetail = fbmCloud(stretchUV * 3.1 + vec2(4.2, -1.8));
-            float cloudDensity = smoothstep(0.44, 0.80, cBase * 0.72 + cDetail * 0.28);
+            float cloudDensity = smoothstep(0.45, 0.81, cBase * 0.72 + cDetail * 0.28);
             cloudDensity *= smoothstep(0.015, 0.14, h) * smoothstep(0.92, 0.35, h);
 
-            // Cloud lighting: warm luminous apricot-pink rim on sunlit side, soft lavender-violet shadows!
-            vec3 cloudLit = mix(vec3(1.0, 0.96, 0.94), vec3(1.0, 0.74, 0.68), uSunsetAmount);
-            vec3 cloudShade = mix(uZenithColor * 0.85, vec3(0.46, 0.38, 0.58), uSunsetAmount);
+            vec3 cloudLit = mix(vec3(1.0, 0.97, 0.95), vec3(1.0, 0.70, 0.58), uSunsetAmount);
+            vec3 cloudShade = mix(uZenithColor * 0.85, vec3(0.42, 0.34, 0.56), uSunsetAmount);
             float rimLight = smoothstep(0.35, 0.85, cDetail) * (0.4 + 0.6 * pow(sunCos, 1.5));
-            vec3 cloudCol = mix(cloudShade, cloudLit, rimLight) * (0.18 + 0.82 * sunAbove);
-            sky = mix(sky, cloudCol, cloudDensity * 0.68);
+            vec3 dayCloud = mix(cloudShade, cloudLit, rimLight) * sunAbove;
+
+            // Subtle moonlit silver-blue night clouds
+            float moonCosC = max(dot(dir, mDir), 0.0);
+            vec3 nightCloud = mix(vec3(0.03, 0.05, 0.10), vec3(0.20, 0.28, 0.44), pow(moonCosC, 4.0) * 0.7 + cDetail * 0.3) * uStarVisibility;
+
+            sky = mix(sky, dayCloud + nightCloud, cloudDensity * mix(0.68, 0.38, uStarVisibility));
           }
 
-          // Silver Moon disc & subtle halo at night
-          float moonCos = max(dot(dir, normalize(uMoonDir)), 0.0);
-          float moonAbove = smoothstep(-0.05, 0.08, uMoonDir.y);
-          sky += vec3(0.76, 0.86, 1.0) * (pow(moonCos, 36.0) * 0.15 + smoothstep(0.9994, 0.9997, moonCos) * 1.45) * moonAbove;
+          // 4. Crisp 3D Moon with lunar maria surface detail & silver atmospheric corona
+          float moonCos = max(dot(dir, mDir), 0.0);
+          float moonAbove = smoothstep(-0.04, 0.06, mDir.y);
+          float moonHalo = (pow(moonCos, 28.0) * 0.20 + pow(moonCos, 180.0) * 0.45) * moonAbove * (0.25 + 0.75 * uStarVisibility);
+          float moonDisc = smoothstep(0.9991, 0.99945, moonCos) * moonAbove;
+          float maria = 0.78 + 0.22 * noise3(dir * 180.0);
+          sky += vec3(0.72, 0.84, 1.0) * moonHalo + vec3(0.96, 0.98, 1.0) * moonDisc * maria * 1.65;
 
-          // Crisp Alpine Starfield + Milky Way band after dusk
+          // 5. Rotating Alpine Starfield (3,500+ multi-magnitude stars) & Luminous Milky Way Band!
           if (uStarVisibility > 0.01 && h > 0.0) {
-            vec3 starGrid = floor(dir * 340.0);
-            float rnd = hash31(starGrid);
-            float starMask = smoothstep(0.9935, 0.9995, rnd);
-            float twinkle = 0.65 + 0.35 * sin(uTime * 3.0 + rnd * 120.0);
-            vec3 starCol = mix(vec3(0.78, 0.86, 1.0), vec3(1.0, 0.88, 0.74), fract(rnd * 17.3));
-            float horizonFade = smoothstep(0.02, 0.24, h);
-            sky += starCol * starMask * twinkle * uStarVisibility * horizonFade * 1.65;
+            vec3 cDir = rotateCelestial(dir, uCelestialAngle);
+            float horizonFade = smoothstep(0.01, 0.20, h);
 
-            float galPlane = abs(dot(dir, normalize(vec3(0.62, 0.38, -0.68))));
-            float mwBand = exp(-galPlane * galPlane * 16.0);
-            float mwCloud = noise3(dir * 9.0) * 0.6 + noise3(dir * 21.0) * 0.4;
-            sky += vec3(0.16, 0.20, 0.32) * mwBand * smoothstep(0.32, 0.82, mwCloud) * uStarVisibility * horizonFade * 0.75;
+            // Layer A: Bright primary navigation stars
+            vec3 gridA = floor(cDir * 260.0);
+            float rndA = hash31(gridA);
+            float starA = smoothstep(0.9945, 0.9996, rndA);
+            float twA = 0.62 + 0.38 * sin(uTime * 3.4 + rndA * 140.0);
+            vec3 colA = mix(vec3(0.74, 0.86, 1.0), vec3(1.0, 0.88, 0.72), fract(rndA * 17.3));
+
+            // Layer B: Dense fine background star dust
+            vec3 gridB = floor(cDir * 520.0);
+            float rndB = hash31(gridB);
+            float starB = smoothstep(0.991, 0.999, rndB) * 0.55;
+
+            sky += (colA * starA * twA * 2.1 + vec3(0.82, 0.88, 1.0) * starB) * uStarVisibility * horizonFade;
+
+            // Luminous Milky Way Galaxy Arch with dark dust rift over Mt. Fuji!
+            vec3 galNormal = normalize(vec3(0.58, 0.42, -0.69));
+            float galDist = dot(cDir, galNormal);
+            float mwBand = exp(-galDist * galDist * 14.0);
+            float mwCore = exp(-galDist * galDist * 45.0);
+            float mwNoise1 = noise3(cDir * 7.5);
+            float mwNoise2 = noise3(cDir * 19.0 + 2.3);
+            float dustRift = smoothstep(0.38, 0.68, noise3(cDir * 12.0 - 1.4));
+            vec3 mwCol = mix(vec3(0.11, 0.17, 0.32), vec3(0.28, 0.24, 0.42), mwNoise1) * mwBand;
+            mwCol += vec3(0.35, 0.32, 0.46) * mwCore * dustRift * mwNoise2;
+            sky += mwCol * smoothstep(0.28, 0.82, mwNoise1 * 0.6 + mwNoise2 * 0.4) * uStarVisibility * horizonFade * 1.15;
           }
 
           gl_FragColor = vec4(sky, 1.0);
@@ -191,7 +231,6 @@ export class SkyAndWeather {
   }
 
   _buildLights() {
-    // Tight 1024x1024 shadow frustum over campsite (crisp 3cm texels, updated at 4Hz!)
     this.sunLight = new THREE.DirectionalLight(0xffcf94, 2.8);
     this.sunLight.castShadow = true;
     this.sunLight.shadow.mapSize.set(1024, 1024);
@@ -207,13 +246,11 @@ export class SkyAndWeather {
     this.scene.add(this.sunLight);
     this.scene.add(this.sunLight.target);
 
-    // Rich sky/ground atmospheric bounce fill
     this.hemiLight = new THREE.HemisphereLight(0xf2b5c4, 0x263142, 0.78);
     this.scene.add(this.hemiLight);
   }
 
   _buildLakeMist() {
-    // Delicate blue-silver Aokigahara valley mist hovering gently along Fuji's wooded foothills!
     const canvas = document.createElement('canvas');
     canvas.width = 256;
     canvas.height = 128;
@@ -251,9 +288,64 @@ export class SkyAndWeather {
     this.scene.add(this.mistGroup);
   }
 
+  _buildVolumetricGodRays() {
+    this.godRayMat = new THREE.ShaderMaterial({
+      transparent: true,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+      side: THREE.DoubleSide,
+      uniforms: {
+        uColor: { value: new THREE.Color(0xffe0a8) },
+        uIntensity: { value: 0.14 },
+        uTime: { value: 0.0 },
+      },
+      vertexShader: `
+        varying vec2 vUv;
+        void main() {
+          vUv = uv;
+          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        }
+      `,
+      fragmentShader: `
+        uniform vec3 uColor;
+        uniform float uIntensity;
+        uniform float uTime;
+        varying vec2 vUv;
+        void main() {
+          if (uIntensity < 0.005) discard;
+          float xFade = pow(sin(vUv.x * 3.14159265), 2.2);
+          float yFade = smoothstep(0.0, 0.22, vUv.y) * pow(1.0 - vUv.y, 1.35);
+          float shimmer = 0.85 + 0.15 * sin(vUv.x * 18.0 + uTime * 0.45);
+          float alpha = xFade * yFade * shimmer * uIntensity;
+          gl_FragColor = vec4(uColor, alpha);
+        }
+      `,
+    });
+
+    this.godRayGroup = new THREE.Group();
+    const rayConfigs = [
+      { x: -10.5, z: -5.8, w: 3.8, len: 18.0, rotY: 0.35 },
+      { x: -8.2,  z: -2.2, w: 3.2, len: 16.5, rotY: -0.45 },
+      { x: -12.0, z: 3.5,  w: 4.2, len: 19.0, rotY: 0.75 },
+      { x: 9.8,   z: -6.2, w: 3.6, len: 17.5, rotY: 0.25 },
+      { x: 8.5,   z: 2.8,  w: 3.4, len: 16.0, rotY: -0.55 },
+      { x: -3.5,  z: 8.5,  w: 4.5, len: 18.5, rotY: 0.15 },
+      { x: 4.2,   z: 9.2,  w: 4.0, len: 18.0, rotY: -0.25 },
+    ];
+    this._godRayMeshes = [];
+    for (const rc of rayConfigs) {
+      const geom = new THREE.PlaneGeometry(rc.w, rc.len);
+      const m = new THREE.Mesh(geom, this.godRayMat);
+      m.position.set(rc.x, 7.2, rc.z);
+      m.userData = rc;
+      this.godRayGroup.add(m);
+      this._godRayMeshes.push(m);
+    }
+    this.scene.add(this.godRayGroup);
+  }
+
   _buildFarVillageLights() {
-    // Tiny warm-gold distant roadside & lakeside cabin lights nestled along the far shore of Lake Motosuko!
-    const count = 48;
+    const count = 54;
     const pos = new Float32Array(count * 3);
     const col = new Float32Array(count * 3);
     let seed = 445566;
@@ -263,7 +355,6 @@ export class SkyAndWeather {
     };
 
     for (let i = 0; i < count; i++) {
-      // Cluster loosely in 3 small lakeside village pockets along far shore (left, center-right foothills, far right)
       const cluster = i % 3;
       const cx = cluster === 0 ? -360 : (cluster === 1 ? 185 : 350);
       const x = cx + (rand() - 0.5) * 190;
@@ -289,13 +380,13 @@ export class SkyAndWeather {
     const vctx = vc.getContext('2d');
     const vg = vctx.createRadialGradient(16, 16, 1, 16, 16, 15);
     vg.addColorStop(0, 'rgba(255,255,255,1)');
-    vg.addColorStop(0.45, 'rgba(255,235,190,0.6)');
+    vg.addColorStop(0.45, 'rgba(255,235,190,0.65)');
     vg.addColorStop(1, 'rgba(255,220,160,0)');
     vctx.fillStyle = vg;
     vctx.fillRect(0, 0, 32, 32);
 
     this.villageMat = new THREE.PointsMaterial({
-      size: 2.6,
+      size: 2.8,
       map: new THREE.CanvasTexture(vc),
       vertexColors: true,
       transparent: true,
@@ -306,6 +397,53 @@ export class SkyAndWeather {
     });
     this.villageLights = new THREE.Points(geom, this.villageMat);
     this.scene.add(this.villageLights);
+  }
+
+  _buildNightFireflies() {
+    // 45 warm glowing lakeside fireflies (蛍 Hotaru) that emerge around shoreline reeds & ferns at dusk/night!
+    const count = 45;
+    const pos = new Float32Array(count * 3);
+    this._fireflyData = [];
+    for (let i = 0; i < count; i++) {
+      const x = (Math.random() - 0.5) * 28;
+      const y = 1.2 + Math.random() * 2.4;
+      const z = -13.5 + Math.random() * 19.0;
+      pos[i * 3] = x;
+      pos[i * 3 + 1] = y;
+      pos[i * 3 + 2] = z;
+      this._fireflyData.push({
+        baseX: x,
+        baseY: y,
+        baseZ: z,
+        phase: Math.random() * Math.PI * 2,
+        speed: 0.6 + Math.random() * 0.7,
+      });
+    }
+    const geom = new THREE.BufferGeometry();
+    geom.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+
+    const fc = document.createElement('canvas');
+    fc.width = 32;
+    fc.height = 32;
+    const fctx = fc.getContext('2d');
+    const fg = fctx.createRadialGradient(16, 16, 1, 16, 16, 15);
+    fg.addColorStop(0, 'rgba(255, 255, 190, 1)');
+    fg.addColorStop(0.4, 'rgba(185, 245, 95, 0.65)');
+    fg.addColorStop(1, 'rgba(140, 220, 60, 0)');
+    fctx.fillStyle = fg;
+    fctx.fillRect(0, 0, 32, 32);
+
+    this.fireflyMat = new THREE.PointsMaterial({
+      size: 0.22,
+      map: new THREE.CanvasTexture(fc),
+      transparent: true,
+      opacity: 0.0,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      sizeAttenuation: true,
+    });
+    this.fireflyPoints = new THREE.Points(geom, this.fireflyMat);
+    this.scene.add(this.fireflyPoints);
   }
 
   _buildFallingLeaves() {
@@ -366,40 +504,56 @@ export class SkyAndWeather {
   }
 
   cycleTimeScale() {
-    const scales = [1, 12, 60];
+    const scales = [0, 4, 24, 90];
     const idx = scales.indexOf(this.timeScale);
     this.timeScale = scales[(idx + 1) % scales.length];
     return this.timeScale;
   }
 
+  /** Scrub time directly (via `[` / `]` keys or HUD slider) */
+  nudgeTime(deltaHours) {
+    this.targetTimeOfDay = null;
+    this.timeOfDay = (this.timeOfDay + deltaHours + 24.0) % 24.0;
+  }
+
+  setTimeOfDay(hours, smooth = false) {
+    const h = ((hours % 24.0) + 24.0) % 24.0;
+    if (smooth) {
+      this.targetTimeOfDay = h;
+    } else {
+      this.targetTimeOfDay = null;
+      this.timeOfDay = h;
+      this._lastBakedElev = -999;
+    }
+  }
+
   cyclePresetTime() {
     const presets = [
-      { h: 15.40, label: '秋日暖阳 · 晴空红叶与碧湖' },
-      { h: 17.74, label: '富士暮霞 · 粉金晚霞逆富士' },
-      { h: 21.30, label: '本栖湖银河 · 静谧星夜' },
-      { h: 6.22,  label: '清晨薄雾 · 粉金富士朝烧' },
+      { h: 17.65, label: '富士夕烧 · 粉金晚霞 (17:39)' },
+      { h: 21.50, label: '本栖湖星夜 · 皓月与银河 (21:30)' },
+      { h: 6.18,  label: '破晓朝烧 · 晨光初照富士山 (06:11)' },
+      { h: 15.35, label: '秋日暖阳 · 晴空红叶与碧湖 (15:21)' },
     ];
     let nextIdx = 0;
+    const refH = this.targetTimeOfDay ?? this.timeOfDay;
     for (let i = 0; i < presets.length; i++) {
-      if (Math.abs(this.timeOfDay - presets[i].h) < 1.2) {
+      if (Math.abs(refH - presets[i].h) < 1.1) {
         nextIdx = (i + 1) % presets.length;
         break;
       }
     }
-    this.timeOfDay = presets[nextIdx].h;
-    this._lastBakedElev = -999;
+    // Smoothly animate the Sun & Moon along their real orbital path to the target hour!
+    this.targetTimeOfDay = presets[nextIdx].h;
     return presets[nextIdx].label;
   }
 
   getPhaseName() {
+    const e = this.sunElevation;
     const h = this.timeOfDay;
-    if (h >= 5.2 && h < 7.2) return '粉金朝烧';
-    if (h >= 7.2 && h < 11.2) return '秋晨晴空';
-    if (h >= 11.2 && h < 15.5) return '清朗午后';
-    if (h >= 15.5 && h < 17.7) return '魔幻暮霞';
-    if (h >= 17.7 && h < 19.0) return '蓝调暮色';
-    if (h >= 19.0 || h < 4.5) return '银河星夜';
-    return '拂晓微明';
+    if (e > 0.22) return h < 12.0 ? '秋晨晴空' : '秋日暖阳';
+    if (e >= 0.01) return h < 12.0 ? '破晓朝烧' : '黄金夕烧';
+    if (e >= -0.11) return h < 12.0 ? '拂晓晨光' : '蓝调暮色';
+    return '银河星夜';
   }
 
   getClockString() {
@@ -409,95 +563,173 @@ export class SkyAndWeather {
     return `${hh}:${mm}`;
   }
 
+  getSolarAngleDeg() {
+    return (Math.asin(THREE.MathUtils.clamp(this.sunElevation, -1, 1)) * 180) / Math.PI;
+  }
+
   update(dt, elapsed) {
-    this.timeOfDay = (this.timeOfDay + (dt * this.timeScale) / 180.0) % 24.0;
-    this.windSpeed = 1.2 + 0.55 * Math.sin(elapsed * 0.16) + 0.25 * Math.cos(elapsed * 0.38);
+    // 1. Advance time either via smooth orbital glide (when switching preset moods) or continuous natural flow
+    if (this.targetTimeOfDay !== null) {
+      let diff = this.targetTimeOfDay - this.timeOfDay;
+      if (diff < -12.0) diff += 24.0;
+      if (diff > 12.0) diff -= 24.0;
+      if (Math.abs(diff) < 0.03) {
+        this.timeOfDay = this.targetTimeOfDay;
+        this.targetTimeOfDay = null;
+        this._lastBakedElev = -999;
+      } else {
+        // Glide sun across sky over ~1.4 seconds so player literally watches the sun set / rise!
+        const step = Math.sign(diff) * Math.max(0.08, Math.abs(diff) * 3.2) * dt;
+        this.timeOfDay = (this.timeOfDay + step + 24.0) % 24.0;
+      }
+    } else if (this.timeScale > 0) {
+      this.timeOfDay = (this.timeOfDay + (dt * this.timeScale) / 180.0) % 24.0;
+    }
 
-    const tempWave = Math.sin(((this.timeOfDay - 8.5) / 24.0) * Math.PI * 2.0);
-    this.ambientTempC = 7.8 + 5.2 * tempWave;
+    this.windSpeed = 1.15 + 0.50 * Math.sin(elapsed * 0.16) + 0.22 * Math.cos(elapsed * 0.38);
 
-    // Solar orbital arc placing sunrise/sunset warmly flanking Mt. Fuji!
-    const solarAngle = ((this.timeOfDay - 6.0) / 24.0) * Math.PI * 2.0;
-    const elev = Math.sin(solarAngle) * 0.88;
-    const horiz = Math.cos(solarAngle);
-    this.sunDir.set(horiz * 0.82, elev, -0.58 - 0.22 * Math.sin(solarAngle * 0.5)).normalize();
+    // 2. TRUE CELESTIAL MECHANICS AT LAKE MOTOSUKO (35.47° N Latitude, Autumn Solar Declination -11°)
+    // Hour angle H = 0 at Solar Noon (12:00), -PI/2 at 06:00 (East rise), +PI/2 at 18:00 (West set)
+    const hourAngle = ((this.timeOfDay - 12.0) / 24.0) * Math.PI * 2.0;
+    const lat = 35.47 * (Math.PI / 180.0);
+    const decl = -11.0 * (Math.PI / 180.0);
+
+    // True spherical astronomy altitude & azimuth!
+    const sinAlt = Math.sin(lat) * Math.sin(decl) + Math.cos(lat) * Math.cos(decl) * Math.cos(hourAngle);
+    const alt = Math.asin(THREE.MathUtils.clamp(sinAlt, -1.0, 1.0));
+    const cosAlt = Math.max(0.001, Math.cos(alt));
+
+    // East (+X) to West (-X) diurnal trajectory, tilted slightly north (-Z) so sunset & sunrise flank Mt. Fuji!
+    const sunX = -Math.sin(hourAngle) * cosAlt * 0.92;
+    const sunY = Math.sin(alt);
+    const sunZ = -0.56 - 0.32 * Math.cos(hourAngle) * cosAlt;
+    this.sunDir.set(sunX, sunY, sunZ).normalize();
     this.sunElevation = this.sunDir.y;
 
-    const moonDir = this.sunDir.clone().negate();
-    moonDir.y = Math.max(-0.5, moonDir.y * 0.85 + 0.15);
-    moonDir.normalize();
+    // Moon follows opposite orbital phase with a higher northern alpine culmination so moonlight bathes Mt. Fuji at night!
+    const moonHourAngle = hourAngle + Math.PI * 0.96;
+    const moonSinAlt = Math.sin(lat) * Math.sin(0.18) + Math.cos(lat) * Math.cos(0.18) * Math.cos(moonHourAngle);
+    const moonAlt = Math.asin(THREE.MathUtils.clamp(moonSinAlt, -1.0, 1.0));
+    const moonCosAlt = Math.max(0.001, Math.cos(moonAlt));
+    this.moonDir.set(
+      -Math.sin(moonHourAngle) * moonCosAlt * 0.85,
+      Math.sin(moonAlt),
+      -0.62 - 0.25 * Math.cos(moonHourAngle) * moonCosAlt
+    ).normalize();
+    this.moonElevation = this.moonDir.y;
 
+    // Ambient temperature driven by real solar elevation (with thermal lag)
+    const tempLag = Math.sin(((this.timeOfDay - 9.0) / 24.0) * Math.PI * 2.0);
+    this.ambientTempC = 7.6 + 5.4 * tempLag;
+
+    // 3. Atmospheric Scattering Factors derived purely from Solar Elevation `e`
     const e = this.sunElevation;
-    const dayT = THREE.MathUtils.smoothstep(e, 0.06, 0.44);
-    const sunsetT = Math.exp(-Math.pow((e - 0.05) / 0.18, 2.0));
-    const nightT = 1.0 - THREE.MathUtils.smoothstep(e, -0.14, 0.05);
-    const starVis = 1.0 - THREE.MathUtils.smoothstep(e, -0.18, -0.01);
+    const dayT = THREE.MathUtils.smoothstep(e, 0.06, 0.42);
+    const sunsetT = Math.exp(-Math.pow((e - 0.03) / 0.16, 2.0));
+    const nightT = 1.0 - THREE.MathUtils.smoothstep(e, -0.13, 0.04);
+    const starVis = 1.0 - THREE.MathUtils.smoothstep(e, -0.15, -0.01);
 
-    // Crisp Japanese autumn azure sky in daytime + luminous Alpenglow sunset/sunrise!
+    this.nightFactor = nightT;
+    this.sunsetFactor = sunsetT;
+
     const zenithDay = new THREE.Color(0x1e66bd);
-    const zenithSunset = new THREE.Color(0x5269b2);
-    const zenithNight = new THREE.Color(0x040712);
+    const zenithSunset = new THREE.Color(0x4a5fa8);
+    const zenithNight = new THREE.Color(0x030611);
 
     const midDay = new THREE.Color(0x5ea6e4);
-    const midSunset = new THREE.Color(0xf6a3b5);
-    const midNight = new THREE.Color(0x091020);
+    const midSunset = new THREE.Color(0xf69eb2);
+    const midNight = new THREE.Color(0x070e1f);
 
     const horizonDay = new THREE.Color(0xd2e9fa);
-    const horizonSunset = new THREE.Color(0xffbe74);
-    const horizonNight = new THREE.Color(0x0c1426);
+    const horizonSunset = new THREE.Color(0xffb86c);
+    const horizonNight = new THREE.Color(0x0d1932);
 
     const zenith = zenithDay.clone().lerp(zenithSunset, sunsetT * 0.92).lerp(zenithNight, nightT);
     const midSky = midDay.clone().lerp(midSunset, sunsetT).lerp(midNight, nightT);
     const horizon = horizonDay.clone().lerp(horizonSunset, sunsetT).lerp(horizonNight, nightT);
-    const sunCol = new THREE.Color(0xfff3de).lerp(new THREE.Color(0xffa768), sunsetT * 0.9);
+    const sunCol = new THREE.Color(0xfff4e0).lerp(new THREE.Color(0xff9652), sunsetT * 0.95);
 
+    const celestialAngle = (this.timeOfDay / 24.0) * Math.PI * 2.0;
     const syncUniforms = (u) => {
       u.uSunDir.value.copy(this.sunDir);
-      u.uMoonDir.value.copy(moonDir);
+      u.uMoonDir.value.copy(this.moonDir);
       u.uZenithColor.value.copy(zenith);
       u.uMidSkyColor.value.copy(midSky);
       u.uHorizonColor.value.copy(horizon);
       u.uSunColor.value.copy(sunCol);
-      u.uSunsetAmount.value = sunsetT * (1.0 - nightT);
+      u.uSunsetAmount.value = sunsetT * (1.0 - nightT * 0.85);
       u.uStarVisibility.value = starVis;
+      u.uCelestialAngle.value = celestialAngle;
       u.uTime.value = elapsed;
     };
     syncUniforms(this.skyMat.uniforms);
     syncUniforms(this._envSkyMat.uniforms);
 
-    // Directional Sun / Moon lighting
-    if (e > -0.06) {
+    // 4. Seamless Sun -> Moon Directional Shadow & Specular Light Handoff
+    if (e > -0.04) {
       this.sunLight.position.copy(this.sunDir).multiplyScalar(42);
       this.sunLight.color.copy(sunCol);
-      this.sunLight.intensity = THREE.MathUtils.lerp(0.65, 3.2, Math.pow(Math.max(0, e + 0.06) / 1.06, 0.52));
+      this.sunLight.intensity = THREE.MathUtils.lerp(0.55, 3.3, Math.pow(Math.max(0, e + 0.04) / 1.04, 0.5));
     } else {
-      this.sunLight.position.copy(moonDir).multiplyScalar(42);
-      this.sunLight.color.setHex(0x88a8dc);
-      this.sunLight.intensity = 0.36;
+      // Crisp silver-blue alpine moonlight casting real moon shadows across the camp & lighting Mt. Fuji's snow!
+      const mDir = this.moonDir.y > 0.08 ? this.moonDir : new THREE.Vector3(0.35, 0.42, -0.82).normalize();
+      this.sunLight.position.copy(mDir).multiplyScalar(42);
+      this.sunLight.color.setHex(0x90b4ec);
+      this.sunLight.intensity = 0.62 * starVis;
     }
     this.sunLight.target.position.set(0, 1.05, -2.0);
     this.sunLight.target.updateMatrixWorld();
 
-    // Rich hemisphere skylight (warm pink-lavender top + deep alpine shadow bottom)
-    this.hemiLight.color.copy(midSky).lerp(zenith, 0.35);
-    this.hemiLight.groundColor.setHex(0x282628).lerp(new THREE.Color(0x0c0f16), nightT);
-    this.hemiLight.intensity = THREE.MathUtils.lerp(0.22, 0.92, dayT) + sunsetT * 0.32;
+    // Hemisphere ambient fill (keeps night silhouettes readable in cool silver-indigo moonlight!)
+    this.hemiLight.color.copy(midSky).lerp(zenith, 0.35).lerp(new THREE.Color(0x3a5688), nightT * 0.65);
+    this.hemiLight.groundColor.setHex(0x282628).lerp(new THREE.Color(0x111726), nightT);
+    this.hemiLight.intensity = THREE.MathUtils.lerp(0.34, 0.92, dayT) + sunsetT * 0.32;
 
-    // Very crisp alpine distance haze so Mt. Fuji retains photographic cobalt contrast (never washed out!)
     this.scene.fog.color.copy(midSky).lerp(new THREE.Color(0x2a5ea8), 0.35 * (1.0 - nightT)).lerp(horizonNight, nightT);
-    this.scene.fog.density = 0.00018 + sunsetT * 0.00008 + nightT * 0.00009;
+    this.scene.fog.density = 0.00018 + sunsetT * 0.00008 + nightT * 0.00008;
 
-    // Blue-silver misty valley layer along Fuji's wooded foothills
-    const mistOp = THREE.MathUtils.clamp(0.14 + sunsetT * 0.16, 0.06, 0.30) * (1.0 - nightT * 0.65);
+    // 5. Valley mist, far-shore village lights, God-Rays, Fireflies & Falling Leaves
+    const mistOp = THREE.MathUtils.clamp(0.14 + sunsetT * 0.16, 0.06, 0.30) * (1.0 - nightT * 0.55);
     this.mistMat.opacity = mistOp;
     for (const m of this._mistPlanes) {
       m.position.x = m.userData.baseX + Math.sin(elapsed * 0.022 * m.userData.speed + m.userData.phase) * 35.0;
     }
 
-    // Far-shore village lights twinkle softly during twilight/sunset & starry night
-    this.villageMat.opacity = THREE.MathUtils.clamp(0.2 + sunsetT * 0.65 + nightT * 0.85, 0.0, 0.95);
+    this.villageMat.opacity = THREE.MathUtils.clamp(0.12 + sunsetT * 0.72 + nightT * 0.92, 0.0, 0.98);
 
-    // Falling maple leaves
+    if (this.godRayMat) {
+      const rayVis = THREE.MathUtils.smoothstep(e, 0.01, 0.16) * (1.0 - THREE.MathUtils.smoothstep(e, 0.52, 0.78));
+      this.godRayMat.uniforms.uIntensity.value = rayVis * (0.095 + sunsetT * 0.075);
+      this.godRayMat.uniforms.uColor.value.copy(sunCol).lerp(horizon, 0.35);
+      this.godRayMat.uniforms.uTime.value = elapsed;
+      this.godRayGroup.visible = rayVis > 0.01;
+      if (this.godRayGroup.visible) {
+        const tiltX = -Math.atan2(this.sunDir.z, Math.max(0.15, this.sunDir.y)) * 0.42;
+        const tiltZ = Math.atan2(this.sunDir.x, Math.max(0.15, this.sunDir.y)) * 0.42;
+        for (const m of this._godRayMeshes) {
+          m.rotation.set(tiltX, m.userData.rotY, tiltZ);
+        }
+      }
+    }
+
+    // Nighttime fireflies pulse & drift above lakeside reeds and ferns when stars come out!
+    if (this.fireflyPoints) {
+      this.fireflyPoints.visible = starVis > 0.05;
+      if (this.fireflyPoints.visible) {
+        const pulse = 0.65 + 0.35 * Math.sin(elapsed * 2.8);
+        this.fireflyMat.opacity = starVis * 0.88 * pulse;
+        const fAttr = this.fireflyPoints.geometry.getAttribute('position');
+        for (let i = 0; i < this._fireflyData.length; i++) {
+          const fd = this._fireflyData[i];
+          const fx = fd.baseX + Math.sin(elapsed * fd.speed + fd.phase) * 0.85;
+          const fy = fd.baseY + Math.sin(elapsed * fd.speed * 1.4 + fd.phase) * 0.42;
+          const fz = fd.baseZ + Math.cos(elapsed * fd.speed * 0.9 + fd.phase) * 0.85;
+          fAttr.setXYZ(i, fx, fy, fz);
+        }
+        fAttr.needsUpdate = true;
+      }
+    }
+
     const attr = this.leavesPoints.geometry.getAttribute('position');
     for (let i = 0; i < this._leafData.length; i++) {
       const d = this._leafData[i];
@@ -513,13 +745,13 @@ export class SkyAndWeather {
     }
     attr.needsUpdate = true;
 
-    // Event-driven PMREM environment cubemap baking (zero periodic frame hitch!)
-    if (Math.abs(e - this._lastBakedElev) > 0.03) {
+    // Re-bake sky PMREM environment map when solar elevation shifts by > 0.025 rad
+    if (Math.abs(e - this._lastBakedElev) > 0.025) {
       this._lastBakedElev = e;
       if (this._envRT) this._envRT.dispose();
       this._envRT = this._pmrem.fromScene(this._envScene, 0.02);
       this.scene.environment = this._envRT.texture;
-      this.scene.environmentIntensity = THREE.MathUtils.lerp(0.28, 0.92, 1.0 - nightT * 0.72);
+      this.scene.environmentIntensity = THREE.MathUtils.lerp(0.32, 0.92, 1.0 - nightT * 0.65);
     }
   }
 }

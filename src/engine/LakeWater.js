@@ -1,13 +1,10 @@
 import * as THREE from 'three';
 import { Water } from 'three/examples/jsm/objects/Water.js';
+import { getShoreZ } from './terrainMath.js';
 
 /**
- * Photographic Glassy-Mirror Lake Motosuko Water Shader ("逆さ富士" Inverted Mt. Fuji!).
- * Features:
- * - True planar mirror reflection of Sky Dome + Painted Dusk Clouds + Razor-Sharp Mt. Fuji
- * - Boosted calm alpine mirror Fresnel reflectance (matches DSLR magic-hour mirror lake photo!)
- * - Ultra-subtle calm capillary wind shimmer (distortionScale = 0.045) so snow streaks reflect crisply!
- * - High-FPS reflection culling (skips foreground camp/forest props & throttles mirror updates)
+ * Photographic Glassy-Mirror Lake Motosuko Water Shader ("逆さ富士" Inverted Mt. Fuji!)
+ * + 3D Curved Shoreline Lapping Wave Swash Ribbon washing over the 3D volcanic pebbles.
  */
 export class LakeWater {
   constructor(scene) {
@@ -27,15 +24,14 @@ export class LakeWater {
       sunDirection: new THREE.Vector3(-0.6, 0.09, -0.8).normalize(),
       sunColor: 0xffc98a,
       waterColor: 0x0b2846,
-      distortionScale: 0.042, // Glassy calm mirror lake -> razor-sharp Inverted Mt. Fuji!
+      distortionScale: 0.042,
       fog: true,
     });
 
-    // Enhance Three.js Water fragment shader so mirror sky/Fuji reflection shines clearly like glass!
     this.water.material.fragmentShader = this.water.material.fragmentShader
       .replace(
         'float rf0 = 0.3;',
-        'float rf0 = 0.72;' // Calm magic-hour mirror lake Fresnel reflectance!
+        'float rf0 = 0.72;'
       )
       .replace(
         'vec3 albedo = mix( ( sunColor * diffuseLight * 0.3 + scatter ) * getShadowMask(), ( vec3( 0.1 ) + reflectionSample * 0.9 + reflectionSample * specularLight ), reflectance);',
@@ -70,6 +66,72 @@ export class LakeWater {
     };
 
     this.scene.add(this.water);
+    this._buildShorelineSwash();
+  }
+
+  _buildShorelineSwash() {
+    const segsX = 110;
+    const widthX = 92.0;
+    const geom = new THREE.BufferGeometry();
+    const verts = [];
+    const uvs = [];
+    const indices = [];
+
+    for (let i = 0; i <= segsX; i++) {
+      const u = i / segsX;
+      const x = (u - 0.5) * widthX;
+      const sz = getShoreZ(x);
+      verts.push(x, 0.025, sz + 0.35);
+      verts.push(x, 0.015, sz - 1.45);
+      uvs.push(u * 14.0, 0.0);
+      uvs.push(u * 14.0, 1.0);
+      if (i < segsX) {
+        const a = i * 2;
+        indices.push(a, a + 1, a + 2, a + 1, a + 3, a + 2);
+      }
+    }
+    geom.setAttribute('position', new THREE.Float32BufferAttribute(verts, 3));
+    geom.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+    geom.setIndex(indices);
+
+    this.swashMat = new THREE.ShaderMaterial({
+      transparent: true,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+      uniforms: {
+        uTime: { value: 0 },
+        uColor: { value: new THREE.Color(0xd8ecfa) },
+      },
+      vertexShader: `
+        varying vec2 vUv;
+        void main() {
+          vUv = uv;
+          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        }
+      `,
+      fragmentShader: `
+        uniform float uTime;
+        uniform vec3 uColor;
+        varying vec2 vUv;
+        float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+        float noise(vec2 p) {
+          vec2 i = floor(p); vec2 f = fract(p); f = f*f*(3.0-2.0*f);
+          return mix(mix(hash(i), hash(i+vec2(1,0)), f.x), mix(hash(i+vec2(0,1)), hash(i+vec2(1,1)), f.x), f.y);
+        }
+        void main() {
+          float n = noise(vec2(vUv.x * 2.5, vUv.y * 4.0 - uTime * 0.55));
+          float wave1 = sin(vUv.y * 9.0 - uTime * 1.65 + n * 2.2);
+          float foam1 = smoothstep(0.76, 0.98, wave1) * (1.0 - smoothstep(0.0, 0.14, vUv.y));
+          float shoreEdge = exp(-pow((vUv.y - 0.18 - 0.08 * sin(uTime * 1.65 + vUv.x * 0.8)) * 9.5, 2.0));
+          float alpha = clamp((foam1 * 0.35 + shoreEdge * 0.55) * (0.55 + 0.45 * n) * (1.0 - vUv.y), 0.0, 0.52);
+          gl_FragColor = vec4(uColor, alpha);
+        }
+      `,
+    });
+
+    this.swashMesh = new THREE.Mesh(geom, this.swashMat);
+    this.scene.add(this.swashMesh);
+    this.excludeFromReflection(this.swashMesh);
   }
 
   excludeFromReflection(obj) {
@@ -132,25 +194,30 @@ export class LakeWater {
   update(dt, sky) {
     const uniforms = this.water.material.uniforms;
     uniforms.time.value += dt * (0.09 + sky.windSpeed * 0.025);
-    // Keep water mirror-calm so Inverted Mt. Fuji stays crystal clear like the reference photograph!
     uniforms.distortionScale.value = 0.035 + sky.windSpeed * 0.018;
 
     if (sky.sunElevation > -0.04) {
       uniforms.sunDirection.value.copy(sky.sunDir);
       uniforms.sunColor.value.copy(sky.sunLight.color);
     } else {
-      const moonDir = sky.sunDir.clone().negate();
-      moonDir.y = Math.max(0.1, moonDir.y);
-      uniforms.sunDirection.value.copy(moonDir.normalize());
-      uniforms.sunColor.value.setHex(0x6e88b5);
+      // Shimmering Silver Moon Path (月光道) driven by the real 3D Moon orbit at night!
+      const mDir = sky.moonDir && sky.moonDir.y > 0.06
+        ? sky.moonDir
+        : new THREE.Vector3(0.35, 0.42, -0.82).normalize();
+      uniforms.sunDirection.value.copy(mDir);
+      uniforms.sunColor.value.setHex(0x9cbfff);
     }
 
-    // Vivid sapphire-turquoise alpine lake water during sunny day -> deep cobalt dusk -> midnight indigo
     const nightT = 1.0 - THREE.MathUtils.smoothstep(sky.sunElevation, -0.15, 0.05);
     const dayT = THREE.MathUtils.smoothstep(sky.sunElevation, 0.08, 0.42);
     uniforms.waterColor.value
       .setHex(0x0b2846)
       .lerp(new THREE.Color(0x0a569e), dayT)
       .lerp(new THREE.Color(0x030812), nightT);
+
+    if (this.swashMat) {
+      this.swashMat.uniforms.uTime.value = uniforms.time.value * 4.5;
+      this.swashMat.uniforms.uColor.value.copy(uniforms.sunColor.value).lerp(new THREE.Color(0xd8ecfa), 0.55);
+    }
   }
 }
